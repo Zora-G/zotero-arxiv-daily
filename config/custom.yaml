@@ -26,11 +26,19 @@ source:
     category: ["cs.CR","cs.AI","cs.LG","cs.CL"]
     include_cross_list: false
   eprint:
-    category: ["Cryptographic protocols","Secret-key cryptography","Public-key cryptography","Attacks and cryptanalysis"]
+    category: ["Cryptographic protocols","Secret-key cryptography","Public-key cryptography","Attacks and cryptanalysis","Foundations","Applications","Implementation"]
+    days_back: 4
 
 executor:
   debug: ${oc.env:DEBUG,null}
   source: ['arxiv','eprint']
   send_empty: false
   max_paper_num: 20
-  reranker: local
+  reranker: api
+
+reranker:
+  api:
+    key: ${oc.env:OPENAI_API_KEY}
+    base_url: ${oc.env:OPENAI_API_BASE}
+    model: BAAI/bge-m3
+    batch_size: 32
