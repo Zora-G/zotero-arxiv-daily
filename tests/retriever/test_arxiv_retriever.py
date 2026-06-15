@@ -70,7 +70,6 @@ def test_arxiv_retriever_falls_back_to_web_new_listing_when_rss_empty(config, mo
         title="Today primary",
         entry_id="https://arxiv.org/abs/2606.00001v1",
     )
-
     class FakeClient:
         def __init__(self, **kw):
             pass
