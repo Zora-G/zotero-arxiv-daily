@@ -148,6 +148,7 @@ class ArxivRetriever(BaseRetriever):
 
     def _fetch_papers_by_ids(self, client: arxiv.Client, all_paper_ids: list[str]) -> list[ArxivResult]:
         # Get full information of each paper from arxiv api
+        raw_papers = []
         bar = tqdm(total=len(all_paper_ids))
         max_batch_retries = 5
         batch_retry_delay = 30
