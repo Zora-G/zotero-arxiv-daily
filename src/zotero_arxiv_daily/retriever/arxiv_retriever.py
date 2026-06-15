@@ -10,6 +10,7 @@ import multiprocessing
 import os
 from queue import Empty
 from time import sleep
+from datetime import date, datetime, timezone
 from typing import Any, Callable, TypeVar
 from loguru import logger
 import requests
@@ -19,6 +20,11 @@ T = TypeVar("T")
 DOWNLOAD_TIMEOUT = (10, 60)
 PDF_EXTRACT_TIMEOUT = 180
 TAR_EXTRACT_TIMEOUT = 180
+ARXIV_FALLBACK_MAX_RESULTS = 500
+
+
+def _utc_today() -> date:
+    return datetime.now(timezone.utc).date()
 
 
 def _download_file(url: str, path: str) -> None:
@@ -131,6 +137,12 @@ class ArxivRetriever(BaseRetriever):
         if self.config.executor.debug:
             all_paper_ids = all_paper_ids[:10]
 
+        if len(all_paper_ids) == 0:
+            logger.warning(
+                f"arXiv RSS returned no entries for {query}; falling back to arXiv API recent search."
+            )
+            return self._retrieve_recent_papers_from_api(client, include_cross_list)
+
         # Get full information of each paper from arxiv api
         bar = tqdm(total=len(all_paper_ids))
         max_batch_retries = 5
@@ -154,6 +166,43 @@ class ArxivRetriever(BaseRetriever):
                 sleep(3)
         bar.close()
 
+        return raw_papers
+
+    def _retrieve_recent_papers_from_api(
+        self,
+        client: arxiv.Client,
+        include_cross_list: bool,
+    ) -> list[ArxivResult]:
+        target_date = _utc_today()
+        categories = list(self.config.source.arxiv.category)
+        query = " OR ".join(f"cat:{category}" for category in categories)
+        search = arxiv.Search(
+            query=query,
+            max_results=ARXIV_FALLBACK_MAX_RESULTS,
+            sort_by=arxiv.SortCriterion.SubmittedDate,
+            sort_order=arxiv.SortOrder.Descending,
+        )
+        raw_papers = []
+        seen_ids = set()
+        for paper in client.results(search):
+            paper_date = paper.published
+            if paper_date.tzinfo is not None:
+                paper_date = paper_date.astimezone(timezone.utc)
+            if paper_date.date() < target_date:
+                break
+            if paper_date.date() != target_date:
+                continue
+
+            if not include_cross_list and paper.primary_category not in categories:
+                continue
+
+            paper_id = paper.entry_id.rsplit("/", 1)[-1]
+            if paper_id in seen_ids:
+                continue
+            seen_ids.add(paper_id)
+            raw_papers.append(paper)
+
+        logger.info(f"Retrieved {len(raw_papers)} arXiv papers from API fallback for {target_date}")
         return raw_papers
 
     def convert_to_paper(self, raw_paper: ArxivResult) -> Paper:
