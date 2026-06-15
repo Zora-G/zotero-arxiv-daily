@@ -8,6 +8,7 @@ import feedparser
 from tqdm import tqdm
 import multiprocessing
 import os
+import re
 from queue import Empty
 from time import sleep
 from datetime import date, datetime, timezone
@@ -20,7 +21,7 @@ T = TypeVar("T")
 DOWNLOAD_TIMEOUT = (10, 60)
 PDF_EXTRACT_TIMEOUT = 180
 TAR_EXTRACT_TIMEOUT = 180
-ARXIV_FALLBACK_MAX_RESULTS = 500
+ARXIV_LIST_SHOW = 2000
 
 
 def _utc_today() -> date:
@@ -134,15 +135,18 @@ class ArxivRetriever(BaseRetriever):
             for i in feed.entries
             if i.get("arxiv_announce_type", "new") in allowed_announce_types
         ]
+        if len(all_paper_ids) == 0:
+            logger.warning(
+                f"arXiv RSS returned no entries for {query}; falling back to arXiv web new listings."
+            )
+            all_paper_ids = self._retrieve_recent_paper_ids_from_web(include_cross_list)
+
         if self.config.executor.debug:
             all_paper_ids = all_paper_ids[:10]
 
-        if len(all_paper_ids) == 0:
-            logger.warning(
-                f"arXiv RSS returned no entries for {query}; falling back to arXiv API recent search."
-            )
-            return self._retrieve_recent_papers_from_api(client, include_cross_list)
+        return self._fetch_papers_by_ids(client, all_paper_ids)
 
+    def _fetch_papers_by_ids(self, client: arxiv.Client, all_paper_ids: list[str]) -> list[ArxivResult]:
         # Get full information of each paper from arxiv api
         bar = tqdm(total=len(all_paper_ids))
         max_batch_retries = 5
@@ -168,42 +172,28 @@ class ArxivRetriever(BaseRetriever):
 
         return raw_papers
 
-    def _retrieve_recent_papers_from_api(
+    def _retrieve_recent_paper_ids_from_web(
         self,
-        client: arxiv.Client,
         include_cross_list: bool,
-    ) -> list[ArxivResult]:
+    ) -> list[str]:
         target_date = _utc_today()
         categories = list(self.config.source.arxiv.category)
-        query = " OR ".join(f"cat:{category}" for category in categories)
-        search = arxiv.Search(
-            query=query,
-            max_results=ARXIV_FALLBACK_MAX_RESULTS,
-            sort_by=arxiv.SortCriterion.SubmittedDate,
-            sort_order=arxiv.SortOrder.Descending,
-        )
-        raw_papers = []
+        paper_ids = []
         seen_ids = set()
-        for paper in client.results(search):
-            paper_date = paper.published
-            if paper_date.tzinfo is not None:
-                paper_date = paper_date.astimezone(timezone.utc)
-            if paper_date.date() < target_date:
-                break
-            if paper_date.date() != target_date:
-                continue
+        for category in categories:
+            response = requests.get(
+                f"https://arxiv.org/list/{category}/new?show={ARXIV_LIST_SHOW}",
+                timeout=DOWNLOAD_TIMEOUT,
+            )
+            response.raise_for_status()
+            for paper_id in _extract_new_listing_ids(response.text, target_date, include_cross_list):
+                if paper_id in seen_ids:
+                    continue
+                seen_ids.add(paper_id)
+                paper_ids.append(paper_id)
 
-            if not include_cross_list and paper.primary_category not in categories:
-                continue
-
-            paper_id = paper.entry_id.rsplit("/", 1)[-1]
-            if paper_id in seen_ids:
-                continue
-            seen_ids.add(paper_id)
-            raw_papers.append(paper)
-
-        logger.info(f"Retrieved {len(raw_papers)} arXiv papers from API fallback for {target_date}")
-        return raw_papers
+        logger.info(f"Retrieved {len(paper_ids)} arXiv paper ids from web fallback for {target_date}")
+        return paper_ids
 
     def convert_to_paper(self, raw_paper: ArxivResult) -> Paper:
         title = raw_paper.title
@@ -224,6 +214,41 @@ class ArxivRetriever(BaseRetriever):
             pdf_url=pdf_url,
             full_text=full_text,
         )
+
+
+def _extract_new_listing_ids(
+    html: str,
+    target_date: date,
+    include_cross_list: bool,
+) -> list[str]:
+    date_match = re.search(r"Showing new listings for [A-Za-z]+, (\d{1,2} [A-Za-z]+ \d{4})", html)
+    if date_match is None:
+        return []
+    announcement_date = datetime.strptime(date_match.group(1), "%d %B %Y").date()
+    if announcement_date != target_date:
+        return []
+
+    paper_ids = []
+    seen_ids = set()
+    in_wanted_section = False
+    for line in html.splitlines():
+        heading_match = re.search(r"<h3>(.*?)</h3>", line)
+        if heading_match is not None:
+            heading = heading_match.group(1)
+            in_wanted_section = heading.startswith("New submissions") or (
+                include_cross_list and heading.startswith("Cross submissions")
+            )
+            continue
+
+        if not in_wanted_section:
+            continue
+
+        for paper_id in re.findall(r'href\s*=\s*"/abs/([0-9]+\.[0-9]+(?:v\d+)?)"\s+title="Abstract"', line):
+            if paper_id in seen_ids:
+                continue
+            seen_ids.add(paper_id)
+            paper_ids.append(paper_id)
+    return paper_ids
 
 
 def extract_text_from_html(paper: ArxivResult) -> str | None:
