@@ -99,6 +99,7 @@ source:
     include_cross_list: false # Set to true to include arXiv cross-list papers in these categories.
   eprint:
     category: ["Cryptographic protocols", "Secret-key cryptography", "Public-key cryptography"]
+    days_back: 3 # Search today and previous 2 days (UTC) when debug/testing.
 
 executor:
   debug: ${oc.env:DEBUG,null}
@@ -125,6 +126,7 @@ source:
     category: null # The categories of target medrxiv papers. Find categories from [here](https://www.medrxiv.org/) Example: ["psychiatry and clinical psychology", "neurology"]
   eprint:
     category: null # The categories of target ePrint papers. Find categories on https://eprint.iacr.org/ . Example: ["Public-key cryptography","Secret-key cryptography","Cryptographic protocols"]
+    days_back: 1 # How many recent days (including today, UTC) to consider.
 
 email:
   sender: ??? # The email account of the SMTP server that sends you email. Example: abc@qq.com

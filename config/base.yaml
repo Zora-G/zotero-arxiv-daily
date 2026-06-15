@@ -14,6 +14,7 @@ source:
     category: null # The categories of target medrxiv papers. Find categories from [here](https://www.medrxiv.org/) Example: ["psychiatry and clinical psychology", "neurology"]
   eprint:
     category: null # The categories of target ePrint papers. Find available categories on https://eprint.iacr.org/, e.g. ["cryptography", "public-key cryptography"]
+    days_back: 1 # How many recent days (including today, in UTC) to search for ePrint papers.
 
 email:
   sender: ??? # The email account of the SMTP server that sends you email. Example: abc@qq.com
