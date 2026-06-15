@@ -44,6 +44,7 @@
   - arxiv
   - biorxiv
   - medrxiv
+  - eprint
 
 ## 📷 Screenshot
 ![screenshot](./assets/screenshot.png)
@@ -96,10 +97,12 @@ source:
   arxiv:
     category: ["cs.AI","cs.CV","cs.LG","cs.CL"]
     include_cross_list: false # Set to true to include arXiv cross-list papers in these categories.
+  eprint:
+    category: ["Cryptographic protocols", "Secret-key cryptography", "Public-key cryptography"]
 
 executor:
   debug: ${oc.env:DEBUG,null}
-  source: ['arxiv']
+  source: ['arxiv','eprint']
 ```
 Set `source.arxiv.include_cross_list: true` if you want cross-listed papers included.
 >[!NOTE]
@@ -120,6 +123,8 @@ source:
     category: null # The categories of target biorxiv papers. Find categories from [here](https://www.biorxiv.org/). Example: ["biochemistry","animal behavior and cognition"]
   medrxiv:
     category: null # The categories of target medrxiv papers. Find categories from [here](https://www.medrxiv.org/) Example: ["psychiatry and clinical psychology", "neurology"]
+  eprint:
+    category: null # The categories of target ePrint papers. Find categories on https://eprint.iacr.org/ . Example: ["Public-key cryptography","Secret-key cryptography","Cryptographic protocols"]
 
 email:
   sender: ??? # The email account of the SMTP server that sends you email. Example: abc@qq.com
@@ -155,7 +160,7 @@ executor:
   debug: false # Whether to use debug mode. Example: true
   send_empty: false # Whether to send an empty email even if no new papers today. Example: true
   max_paper_num: 100 # The maximum number of the papers presented in the email. Example: 100
-  source: ??? # The sources of papers to retrieve. Example: ['arxiv','biorxiv','medrxiv']
+  source: ??? # The sources of papers to retrieve. Example: ['arxiv','biorxiv','medrxiv','eprint']
   reranker: local # The reranker to use. Example: 'local' or 'api'
 ```
 

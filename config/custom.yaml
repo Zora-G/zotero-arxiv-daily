@@ -25,10 +25,12 @@ source:
   arxiv:
     category: ["cs.CR","cs.AI","cs.LG","cs.CL"]
     include_cross_list: false
+  eprint:
+    category: ["Cryptographic protocols","Secret-key cryptography","Public-key cryptography","Attacks and cryptanalysis"]
 
 executor:
   debug: ${oc.env:DEBUG,null}
-  source: ['arxiv']
+  source: ['arxiv','eprint']
   send_empty: false
   max_paper_num: 20
   reranker: local
