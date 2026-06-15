@@ -1,6 +1,7 @@
 """Tests for ArxivRetriever."""
 
 import time
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
 import feedparser
@@ -61,6 +62,45 @@ def test_arxiv_retriever(config, mock_feedparser, monkeypatch):
 
     assert len(papers) == len(new_entries)
     assert set(p.title for p in papers) == set(e.title for e in new_entries)
+
+
+def test_arxiv_retriever_falls_back_to_api_when_rss_empty(config, monkeypatch):
+    target_date = date(2026, 6, 15)
+    today_primary = SimpleNamespace(
+        title="Today primary",
+        published=datetime(2026, 6, 15, 1, 0, tzinfo=timezone.utc),
+        primary_category="cs.AI",
+        entry_id="https://arxiv.org/abs/2606.00001v1",
+    )
+    today_cross_list = SimpleNamespace(
+        title="Today cross-list",
+        published=datetime(2026, 6, 15, 1, 0, tzinfo=timezone.utc),
+        primary_category="cs.RO",
+        entry_id="https://arxiv.org/abs/2606.00002v1",
+    )
+    yesterday_primary = SimpleNamespace(
+        title="Yesterday primary",
+        published=datetime(2026, 6, 14, 23, 59, tzinfo=timezone.utc),
+        primary_category="cs.AI",
+        entry_id="https://arxiv.org/abs/2606.00003v1",
+    )
+
+    class FakeClient:
+        def __init__(self, **kw):
+            pass
+
+        def results(self, search):
+            return iter([today_primary, today_cross_list, yesterday_primary])
+
+    empty_feed = SimpleNamespace(feed=SimpleNamespace(title="cs.AI updates"), entries=[])
+    monkeypatch.setattr(feedparser, "parse", lambda url: empty_feed)
+    monkeypatch.setattr(arxiv_retriever.arxiv, "Client", FakeClient)
+    monkeypatch.setattr(arxiv_retriever, "_utc_today", lambda: target_date)
+
+    retriever = ArxivRetriever(config)
+    raw_papers = retriever._retrieve_raw_papers()
+
+    assert raw_papers == [today_primary]
 
 
 def test_run_with_hard_timeout_returns_value():
