@@ -10,10 +10,27 @@ import pytest
 from zotero_arxiv_daily.retriever.eprint_retriever import EprintRetriever
 
 
+class Entry(SimpleNamespace):
+    def get(self, key, default=None):
+        return getattr(self, key, default)
+
+
+class MockDateTime:
+    def __call__(self, *args, **kwargs):
+        return datetime(*args, **kwargs)
+
+    @staticmethod
+    def now(tz=None):
+        return datetime(2026, 6, 15, 0, 0, tzinfo=timezone.utc)
+
+    @staticmethod
+    def strptime(*args, **kwargs):
+        return datetime.strptime(*args, **kwargs)
+
+
 def test_eprint_retriever(config, monkeypatch):
     def _patched_parse(url):
         assert url == "https://eprint.iacr.org/rss/rss.xml"
-        Entry = type("Entry", (), {})
         return SimpleNamespace(
             bozo=False,
             entries=[
@@ -31,7 +48,7 @@ def test_eprint_retriever(config, monkeypatch):
                     link="https://eprint.iacr.org/2026/9998",
                     summary="Summary B",
                     published_parsed=(2026, 6, 15, 0, 0, 1, 0, 0, 0),
-                    tags=[type("Tag", (), {"term": "Quantum cryptography"})()],
+                    tags=[SimpleNamespace(term="Quantum cryptography")],
                     authors=[{"name": "Bob"}],
                 ),
                 Entry(
@@ -56,10 +73,7 @@ def test_eprint_retriever(config, monkeypatch):
     monkeypatch.setattr(feedparser, "parse", _patched_parse)
     monkeypatch.setattr(
         "zotero_arxiv_daily.retriever.eprint_retriever.datetime",
-        SimpleNamespace(
-            now=lambda tz=None: datetime(2026, 6, 15, 0, 0, tzinfo=timezone.utc),
-            strptime=datetime.strptime,
-        ),
+        MockDateTime(),
     )
 
     with open_dict(config.source):
@@ -78,7 +92,7 @@ def test_eprint_retriever(config, monkeypatch):
 def test_eprint_days_back(config, monkeypatch):
     def _patched_parse(url):
         assert url == "https://eprint.iacr.org/rss/rss.xml"
-        Entry = type("Entry", (), {})
+        Entry = SimpleNamespace
         return SimpleNamespace(
             bozo=False,
             entries=[
@@ -105,10 +119,7 @@ def test_eprint_days_back(config, monkeypatch):
     monkeypatch.setattr(feedparser, "parse", _patched_parse)
     monkeypatch.setattr(
         "zotero_arxiv_daily.retriever.eprint_retriever.datetime",
-        SimpleNamespace(
-            now=lambda tz=None: datetime(2026, 6, 15, 0, 0, tzinfo=timezone.utc),
-            strptime=datetime.strptime,
-        ),
+        MockDateTime(),
     )
 
     with open_dict(config.source):

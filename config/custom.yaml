@@ -32,8 +32,18 @@ source:
 executor:
   debug: ${oc.env:DEBUG,null}
   source: ['arxiv','eprint']
-  send_empty: false
-  max_paper_num: 20
+  send_empty: true
+  max_paper_num: 30
+  quality_boost: true
+  citation_weight: 0.6
+  author_weight: 0.4
+  venue_weight: 0.2
+  citation_scale: 200
+  author_h_index_scale: 25
+  quality_search_results: 5
+  quality_max_authors: 1
+  quality_timeout: 10
+  quality_min_title_similarity: 0.6
   reranker: api
 
 reranker:

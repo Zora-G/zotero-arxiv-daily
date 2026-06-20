@@ -9,6 +9,7 @@ from datetime import datetime
 from .reranker import get_reranker_cls
 from .construct_email import render_email
 from .utils import send_email
+from .quality import OpenAlexQualityEnricher
 from openai import OpenAI
 from tqdm import tqdm
 
@@ -40,6 +41,7 @@ class Executor:
             source: get_retriever_cls(source)(config) for source in config.executor.source
         }
         self.reranker = get_reranker_cls(config.executor.reranker)(config)
+        self.quality_enricher = OpenAlexQualityEnricher(config)
         self.openai_client = OpenAI(api_key=config.llm.api.key, base_url=config.llm.api.base_url)
     def fetch_zotero_corpus(self) -> list[CorpusPaper]:
         logger.info("Fetching zotero corpus")
@@ -112,6 +114,9 @@ class Executor:
             logger.info(f"Retrieved {len(papers)} {source} papers")
             all_papers.extend(papers)
         logger.info(f"Total {len(all_papers)} papers retrieved from all sources")
+        if self.quality_enricher.enabled and len(all_papers) > 0:
+            logger.info("Enriching papers with OpenAlex citation and author signals...")
+            self.quality_enricher.enrich_papers(all_papers)
         reranked_papers = []
         if len(all_papers) > 0:
             logger.info("Reranking papers...")

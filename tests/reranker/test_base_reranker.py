@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+from omegaconf import open_dict
 
 from zotero_arxiv_daily.reranker.base import BaseReranker, get_reranker_cls
 from tests.canned_responses import make_sample_paper, make_sample_corpus
@@ -63,6 +64,35 @@ def test_rerank_single_candidate_single_corpus():
     ranked = reranker.rerank(papers, corpus)
     assert len(ranked) == 1
     assert ranked[0].score is not None
+
+
+def test_rerank_quality_boost_prefers_high_quality_paper(config):
+    corpus = make_sample_corpus(1)
+    papers = [
+        make_sample_paper(title="Low quality paper"),
+        make_sample_paper(title="High quality paper"),
+    ]
+    papers[0].citation_count = 0
+    papers[0].author_h_index = 1
+    papers[1].citation_count = 80
+    papers[1].author_h_index = 18
+    papers[1].venue_type = "conference"
+
+    sim = np.array([[0.5], [0.5]])
+    reranker = StubReranker(sim)
+    reranker.config = config
+
+    with open_dict(config.executor):
+        config.executor.quality_boost = True
+        config.executor.citation_weight = 0.6
+        config.executor.author_weight = 0.4
+        config.executor.venue_weight = 0.2
+        config.executor.citation_scale = 200
+        config.executor.author_h_index_scale = 25
+
+    ranked = reranker.rerank(papers, corpus)
+    assert ranked[0].title == "High quality paper"
+    assert ranked[0].score > ranked[1].score
 
 
 def test_get_reranker_cls_unknown():
