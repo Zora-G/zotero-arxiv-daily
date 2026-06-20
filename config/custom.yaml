@@ -33,7 +33,7 @@ executor:
   debug: ${oc.env:DEBUG,null}
   source: ['arxiv','eprint']
   send_empty: true
-  max_paper_num: 100
+  max_paper_num: 30
   reranker: api
 
 reranker:
