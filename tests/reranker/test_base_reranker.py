@@ -19,6 +19,17 @@ class StubReranker(BaseReranker):
         return self._sim
 
 
+class SequenceStubReranker(BaseReranker):
+    """Reranker returning a different controlled matrix for each similarity call."""
+
+    def __init__(self, sim_matrices: list[np.ndarray]):
+        self.config = None
+        self._sim_matrices = list(sim_matrices)
+
+    def get_similarity_score(self, s1, s2):
+        return self._sim_matrices.pop(0)
+
+
 def test_rerank_scores_and_sorts():
     corpus = make_sample_corpus(3)
     papers = [make_sample_paper(title=f"Paper {i}") for i in range(2)]
@@ -89,9 +100,32 @@ def test_rerank_quality_boost_prefers_high_quality_paper(config):
         config.executor.venue_weight = 0.2
         config.executor.citation_scale = 200
         config.executor.author_h_index_scale = 25
+        config.executor.interest_profile_weight = 0.0
 
     ranked = reranker.rerank(papers, corpus)
     assert ranked[0].title == "High quality paper"
+    assert ranked[0].score > ranked[1].score
+
+
+def test_rerank_interest_profile_prefers_matching_paper(config):
+    corpus = make_sample_corpus(1)
+    papers = [
+        make_sample_paper(title="Generic cryptanalysis paper"),
+        make_sample_paper(title="New applied cryptographic primitive"),
+    ]
+
+    corpus_sim = np.array([[0.5], [0.5]])
+    profile_sim = np.array([[0.1], [0.9]])
+    reranker = SequenceStubReranker([corpus_sim, profile_sim])
+    reranker.config = config
+
+    with open_dict(config.executor):
+        config.executor.quality_boost = False
+        config.executor.interest_profile = ["new applied cryptographic primitives"]
+        config.executor.interest_profile_weight = 1.0
+
+    ranked = reranker.rerank(papers, corpus)
+    assert ranked[0].title == "New applied cryptographic primitive"
     assert ranked[0].score > ranked[1].score
 
 
