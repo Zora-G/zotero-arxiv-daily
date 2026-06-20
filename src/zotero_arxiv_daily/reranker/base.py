@@ -15,6 +15,12 @@ class BaseReranker(ABC):
         sim = self.get_similarity_score([c.abstract for c in candidates], [c.abstract for c in corpus])
         assert sim.shape == (len(candidates), len(corpus))
         scores = (sim * time_decay_weight).sum(axis=1) * 10 # [n_candidate]
+        interest_profile = self._interest_profile()
+        interest_weight = self._interest_profile_weight()
+        if interest_profile and interest_weight > 0:
+            profile_sim = self.get_similarity_score([self._paper_profile_text(c) for c in candidates], interest_profile)
+            assert profile_sim.shape == (len(candidates), len(interest_profile))
+            scores = scores + profile_sim.max(axis=1) * 10 * interest_weight
         if self._quality_boost_enabled():
             quality_bonus = np.array([self._quality_bonus(c) for c in candidates], dtype=float)
             scores = scores + quality_bonus
@@ -26,6 +32,27 @@ class BaseReranker(ABC):
     def _quality_boost_enabled(self) -> bool:
         executor_cfg = getattr(self.config, "executor", None)
         return bool(getattr(executor_cfg, "quality_boost", False))
+
+    def _interest_profile(self) -> list[str]:
+        executor_cfg = getattr(self.config, "executor", None)
+        if not executor_cfg:
+            return []
+        profile = getattr(executor_cfg, "interest_profile", None)
+        if not profile:
+            return []
+        if isinstance(profile, str):
+            return [profile.strip()] if profile.strip() else []
+        return [str(item).strip() for item in profile if str(item).strip()]
+
+    def _interest_profile_weight(self) -> float:
+        executor_cfg = getattr(self.config, "executor", None)
+        if not executor_cfg:
+            return 0.0
+        return float(getattr(executor_cfg, "interest_profile_weight", 0.0) or 0.0)
+
+    @staticmethod
+    def _paper_profile_text(paper: Paper) -> str:
+        return "\n".join(part for part in (paper.title, paper.abstract) if part)
 
     def _quality_bonus(self, paper: Paper) -> float:
         executor_cfg = getattr(self.config, "executor", None)
