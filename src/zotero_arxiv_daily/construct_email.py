@@ -52,7 +52,7 @@ def get_empty_html():
   """
   return block_template
 
-def get_block_html(title:str, authors:str, rate:str, tldr:str, pdf_url:str, affiliations:str=None):
+def get_block_html(title:str, source:str, authors:str, rate:str, tldr:str, pdf_url:str, affiliations:str=None):
     block_template = """
     <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: Arial, sans-serif; border: 1px solid #ddd; border-radius: 8px; padding: 16px; background-color: #f9f9f9;">
     <tr>
@@ -61,7 +61,12 @@ def get_block_html(title:str, authors:str, rate:str, tldr:str, pdf_url:str, affi
         </td>
     </tr>
     <tr>
-        <td style="font-size: 14px; color: #666; padding: 8px 0;">
+        <td style="font-size: 13px; color: #888; padding: 6px 0 2px 0;">
+            <strong>Source:</strong> {source}
+        </td>
+    </tr>
+    <tr>
+        <td style="font-size: 14px; color: #666; padding: 6px 0;">
             {authors}
             <br>
             <i>{affiliations}</i>
@@ -125,7 +130,7 @@ def render_email(papers:list[Paper]) -> str:
                 affiliations += ', ...'
         else:
             affiliations = 'Unknown Affiliation'
-        parts.append(get_block_html(p.title, authors, rate, p.tldr, p.pdf_url, affiliations))
+        parts.append(get_block_html(p.title, p.source, authors, rate, p.tldr, p.pdf_url, affiliations))
 
     content = '<br>' + '</br><br>'.join(parts) + '</br>'
     return framework.replace('__CONTENT__', content)
