@@ -100,6 +100,7 @@ def test_rerank_quality_boost_prefers_high_quality_paper(config):
         config.executor.venue_weight = 0.2
         config.executor.citation_scale = 200
         config.executor.author_h_index_scale = 25
+        config.executor.interest_profile_weight = 0.0
 
     ranked = reranker.rerank(papers, corpus)
     assert ranked[0].title == "High quality paper"
