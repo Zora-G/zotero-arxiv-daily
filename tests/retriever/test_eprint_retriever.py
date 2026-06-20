@@ -10,10 +10,14 @@ import pytest
 from zotero_arxiv_daily.retriever.eprint_retriever import EprintRetriever
 
 
+class Entry(SimpleNamespace):
+    def get(self, key, default=None):
+        return getattr(self, key, default)
+
+
 def test_eprint_retriever(config, monkeypatch):
     def _patched_parse(url):
         assert url == "https://eprint.iacr.org/rss/rss.xml"
-        Entry = SimpleNamespace
         return SimpleNamespace(
             bozo=False,
             entries=[
