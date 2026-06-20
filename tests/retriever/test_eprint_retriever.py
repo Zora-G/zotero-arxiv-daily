@@ -15,6 +15,19 @@ class Entry(SimpleNamespace):
         return getattr(self, key, default)
 
 
+class MockDateTime:
+    def __call__(self, *args, **kwargs):
+        return datetime(*args, **kwargs)
+
+    @staticmethod
+    def now(tz=None):
+        return datetime(2026, 6, 15, 0, 0, tzinfo=timezone.utc)
+
+    @staticmethod
+    def strptime(*args, **kwargs):
+        return datetime.strptime(*args, **kwargs)
+
+
 def test_eprint_retriever(config, monkeypatch):
     def _patched_parse(url):
         assert url == "https://eprint.iacr.org/rss/rss.xml"
@@ -60,10 +73,7 @@ def test_eprint_retriever(config, monkeypatch):
     monkeypatch.setattr(feedparser, "parse", _patched_parse)
     monkeypatch.setattr(
         "zotero_arxiv_daily.retriever.eprint_retriever.datetime",
-        SimpleNamespace(
-            now=lambda tz=None: datetime(2026, 6, 15, 0, 0, tzinfo=timezone.utc),
-            strptime=datetime.strptime,
-        ),
+        MockDateTime(),
     )
 
     with open_dict(config.source):
@@ -109,10 +119,7 @@ def test_eprint_days_back(config, monkeypatch):
     monkeypatch.setattr(feedparser, "parse", _patched_parse)
     monkeypatch.setattr(
         "zotero_arxiv_daily.retriever.eprint_retriever.datetime",
-        SimpleNamespace(
-            now=lambda tz=None: datetime(2026, 6, 15, 0, 0, tzinfo=timezone.utc),
-            strptime=datetime.strptime,
-        ),
+        MockDateTime(),
     )
 
     with open_dict(config.source):
