@@ -90,7 +90,7 @@ def get_block_html(title:str, source:str, authors:str, rate:str, tldr:str, pdf_u
     </tr>
 </table>
 """
-    return block_template.format(title=title, authors=authors,rate=rate, tldr=tldr, pdf_url=pdf_url, affiliations=affiliations)
+    return block_template.format(title=title, source=source, authors=authors, rate=rate, tldr=tldr, pdf_url=pdf_url, affiliations=affiliations)
 
 def get_stars(score:float):
     full_star = '<span class="full-star">⭐</span>'
