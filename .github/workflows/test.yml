@@ -27,8 +27,7 @@ jobs:
         run: |
           export DEBUG=true
           if [ -n "$CUSTOM_CONFIG" ]; then
-            printf "%b
-" "$CUSTOM_CONFIG" > config/custom.yaml
+            printf '%s\n' "$CUSTOM_CONFIG" > config/custom.yaml
             echo "Using CUSTOM_CONFIG repository variable."
           else
             echo "Using committed config/custom.yaml."
