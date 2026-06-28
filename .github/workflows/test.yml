@@ -6,11 +6,10 @@ jobs:
   calculate-and-send:
     runs-on: [self-hosted, zotero-gpu]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-      #  with:
-      #    repository: ${{ vars.REPOSITORY }}
-      #    ref: ${{ vars.REF }}
+      - name: Download repository
+        run: |
+          curl -fsSL "https://codeload.github.com/${GITHUB_REPOSITORY}/tar.gz/${GITHUB_SHA}" -o repo.tar.gz
+          tar -xzf repo.tar.gz --strip-components=1
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v7.1.4
