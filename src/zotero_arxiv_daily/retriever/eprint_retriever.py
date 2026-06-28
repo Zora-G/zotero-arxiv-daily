@@ -11,6 +11,13 @@ from .base import BaseRetriever, register_retriever
 from ..protocol import Paper
 
 
+def _entry_get(entry: Any, key: str, default=None):
+    try:
+        return entry.get(key, default)
+    except AttributeError:
+        return getattr(entry, key, default)
+
+
 @register_retriever("eprint")
 class EprintRetriever(BaseRetriever):
     def __init__(self, config):
@@ -103,10 +110,11 @@ class EprintRetriever(BaseRetriever):
         papers = []
         matched_today_count = 0
         category_matched_count = 0
+        matched_entries: list[tuple[datetime, Any]] = []
         for entry in response.entries:
             entry_time = self._extract_time(entry)
             if entry_time is None:
-                logger.warning(f"Failed to parse ePrint time from {entry.get('link')}")
+                logger.warning(f"Failed to parse ePrint time from {_entry_get(entry, 'link')}")
                 continue
             date_key = entry_time.strftime("%Y-%m-%d")
             date_hits[date_key] += 1
@@ -120,12 +128,12 @@ class EprintRetriever(BaseRetriever):
                 logger.debug(f"No category found for entry {entry.get('link')}")
 
             if not self._category_hit(entry_categories, category_set):
-                logger.debug(f"Skipped ePrint {entry.get('link')} with categories: {sorted(entry_categories)}")
+                logger.debug(f"Skipped ePrint {_entry_get(entry, 'link')} with categories: {sorted(entry_categories)}")
                 continue
             category_matched_count += 1
 
-            papers.append(entry)
-            if self.config.executor.debug and len(papers) >= 10:
+            matched_entries.append((entry_time, entry))
+            if self.config.executor.debug and len(matched_entries) >= 10:
                 break
 
         matched_dates = ', '.join(f"{d}:{count}" for d, count in sorted(date_hits.items()))
@@ -133,9 +141,9 @@ class EprintRetriever(BaseRetriever):
         logger.info(f"ePrint date match count: {matched_today_count}")
         logger.info(f"ePrint category match count: {category_matched_count}")
 
+        papers = [entry for _, entry in sorted(matched_entries, key=lambda item: item[0], reverse=True)]
         if self.config.executor.debug:
-            papers = papers[:10]
-
+            return papers[:10]
         return papers
 
     def convert_to_paper(self, raw_paper: Any) -> Paper:
@@ -154,6 +162,12 @@ class EprintRetriever(BaseRetriever):
         abstract = re.sub(r"<[^>]+>", "", abstract)
         abstract = unescape(abstract)
 
+        source_note = _entry_get(raw_paper, "comment", None)
+        if source_note is not None:
+            source_note = str(source_note).strip()
+            if source_note == "":
+                source_note = None
+
         pdf_url = None
         for link in getattr(raw_paper, "links", []):
             if link.get("type") == "application/pdf":
@@ -162,6 +176,7 @@ class EprintRetriever(BaseRetriever):
 
         return Paper(
             source=self.name,
+            source_note=source_note,
             title=title,
             authors=authors,
             abstract=abstract.strip(),

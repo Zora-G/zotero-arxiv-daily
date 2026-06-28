@@ -1,6 +1,7 @@
 """Tests for zotero_arxiv_daily.protocol: Paper.generate_tldr, Paper.generate_affiliations."""
 
 import pytest
+from types import SimpleNamespace
 
 from tests.canned_responses import make_sample_paper, make_stub_openai_client
 
@@ -46,6 +47,28 @@ def test_tldr_falls_back_to_abstract_on_error(llm_params):
     )
     result = paper.generate_tldr(broken_client, llm_params)
     assert result == paper.abstract
+
+
+def test_tldr_uses_configured_sentence_and_length(llm_params):
+    captured_prompt = {}
+
+    def create_with_prompt_capture(**kwargs):
+        user_msg = kwargs.get("messages", [])[1]["content"]
+        captured_prompt["content"] = user_msg
+        return make_stub_openai_client().chat.completions.create(**kwargs)
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=create_with_prompt_capture)
+        )
+    )
+    llm_params["tldr"] = {"max_sentences": 3, "max_words": 160}
+    paper = make_sample_paper()
+    result = paper.generate_tldr(client, llm_params)
+
+    assert result == "Hello! How can I assist you today?"
+    assert "3-sentence TLDR" in captured_prompt["content"]
+    assert "160" in captured_prompt["content"]
 
 
 def test_tldr_truncates_long_prompt(llm_params):
@@ -122,3 +145,25 @@ def test_affiliations_error_returns_none(llm_params):
     result = paper.generate_affiliations(broken_client, llm_params)
     assert result is None
     assert paper.affiliations is None
+
+
+def test_title_translation_returns_translated_text(llm_params):
+    client = make_stub_openai_client()
+    paper = make_sample_paper(title="Sample Paper Title")
+    result = paper.generate_title_translation(client, llm_params)
+    assert result == "示例论文题目（中文）"
+    assert paper.title_cn == "示例论文题目（中文）"
+
+
+def test_title_translation_fallback_on_error(llm_params):
+    from types import SimpleNamespace
+
+    broken_client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=lambda **kw: (_ for _ in ()).throw(RuntimeError("boom")))
+        )
+    )
+    paper = make_sample_paper(title="Original English Title")
+    result = paper.generate_title_translation(broken_client, llm_params)
+    assert result == "Original English Title"
+    assert paper.title_cn == "Original English Title"

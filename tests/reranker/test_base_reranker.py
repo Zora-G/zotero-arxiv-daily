@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 from omegaconf import open_dict
+import csv
 
 from zotero_arxiv_daily.reranker.base import BaseReranker, get_reranker_cls
 from tests.canned_responses import make_sample_paper, make_sample_corpus
@@ -127,6 +128,57 @@ def test_rerank_interest_profile_prefers_matching_paper(config):
     ranked = reranker.rerank(papers, corpus)
     assert ranked[0].title == "New applied cryptographic primitive"
     assert ranked[0].score > ranked[1].score
+
+
+def test_rerank_feedback_profiles_influence_ranking(tmp_path, config):
+    corpus = make_sample_corpus(1)
+    papers = [
+        make_sample_paper(title="Password hashing with PAKE"),
+        make_sample_paper(title="Classical cryptanalysis paper"),
+    ]
+    corpus_sim = np.array([[0.5], [0.5]])
+    profile_like_sim = np.array([[0.8], [0.1]])
+    profile_dislike_sim = np.array([[0.05], [0.9]])
+    reranker = SequenceStubReranker([corpus_sim, profile_like_sim, profile_dislike_sim])
+    reranker.config = config
+
+    history = tmp_path / "feedback.csv"
+    with history.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=["timestamp", "action", "source", "title", "paper_url"],
+        )
+        writer.writeheader()
+        writer.writerow(
+            {
+                "timestamp": "2026-06-26T00:00:00",
+                "action": "liked",
+                "source": "arxiv",
+                "title": "PAKE",
+                "paper_url": "https://arxiv.org/abs/1",
+            }
+        )
+        writer.writerow(
+            {
+                "timestamp": "2026-06-26T00:00:00",
+                "action": "dislike",
+                "source": "arxiv",
+                "title": "cryptanalysis",
+                "paper_url": "https://arxiv.org/abs/2",
+            }
+        )
+
+    with open_dict(config.feedback):
+        config.feedback.enabled = True
+        config.feedback.history_path = str(history)
+        config.feedback.history_max_items = 10
+        config.feedback.positive_weight = 1.0
+        config.feedback.negative_weight = 1.0
+    with open_dict(config.executor):
+        config.executor.interest_profile_weight = 0.0
+
+    ranked = reranker.rerank(papers, corpus)
+    assert ranked[0].title == "Password hashing with PAKE"
 
 
 def test_get_reranker_cls_unknown():

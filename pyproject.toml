@@ -5,7 +5,7 @@ build-backend = "uv_build"
 [project]
 name = "zotero-arxiv-daily"
 version = "1.0.0"
-description = "Add your description here"
+description = "Daily cryptography paper recommendations from Zotero, arXiv, and IACR ePrint."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

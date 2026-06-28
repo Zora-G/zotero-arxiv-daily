@@ -94,6 +94,71 @@ class Executor:
         return corpus
 
     
+
+    @staticmethod
+    def _source_minimums(config):
+        """Read and normalize executor.source_min_papers.
+
+        Returns dict[str, int] with non-negative quotas.
+        """
+        source_min = getattr(config.executor, "source_min_papers", None)
+        if not source_min:
+            return {}
+
+        mins = {}
+        for source, value in source_min.items():
+            try:
+                min_count = int(value)
+            except (TypeError, ValueError):
+                logger.warning(f"Invalid source_min_papers value for {source}: {value}")
+                continue
+
+            if min_count < 0:
+                logger.warning(f"Invalid source_min_papers value for {source}: {min_count}")
+                continue
+
+            mins[str(source)] = min_count
+
+        return mins
+
+    def _apply_source_minimums(self, papers:list, mins:dict[str, int]) -> list:
+        """Keep at least configured minimum papers from each source after reranking."""
+        if len(papers) == 0 or not mins:
+            return papers[:self.config.executor.max_paper_num]
+
+        max_paper_num = int(self.config.executor.max_paper_num)
+        by_source = {source: [] for source in mins}
+        for paper in papers:
+            source = getattr(paper, "source", None)
+            if source in by_source:
+                by_source[source].append(paper)
+
+        total_minimum = sum(mins.values())
+        if total_minimum > max_paper_num:
+            logger.warning(
+                f"Configured source_min_papers total ({total_minimum}) is larger than max_paper_num ({max_paper_num}). "
+                "Use global ranking instead."
+            )
+            return papers[:max_paper_num]
+
+        selected = []
+        selected_ids = set()
+
+        for source, min_count in mins.items():
+            quota = min(min_count, len(by_source.get(source, [])))
+            for paper in by_source.get(source, [])[:quota]:
+                selected.append(paper)
+                selected_ids.add(id(paper))
+
+        for paper in papers:
+            if len(selected) >= max_paper_num:
+                break
+            if id(paper) not in selected_ids:
+                selected.append(paper)
+                selected_ids.add(id(paper))
+
+        return selected[:max_paper_num]
+
     def run(self):
         corpus = self.fetch_zotero_corpus()
         corpus = self.filter_corpus(corpus)
@@ -121,15 +186,19 @@ class Executor:
         if len(all_papers) > 0:
             logger.info("Reranking papers...")
             reranked_papers = self.reranker.rerank(all_papers, corpus)
-            reranked_papers = reranked_papers[:self.config.executor.max_paper_num]
-            logger.info("Generating TLDR and affiliations...")
+            source_minimums = self._source_minimums(self.config)
+            if source_minimums:
+                logger.info(f"Applying source minimums: {source_minimums}")
+            reranked_papers = self._apply_source_minimums(reranked_papers, source_minimums)
+            logger.info("Generating title translation, TLDR and affiliations...")
             for p in tqdm(reranked_papers):
+                p.generate_title_translation(self.openai_client, self.config.llm)
                 p.generate_tldr(self.openai_client, self.config.llm)
                 p.generate_affiliations(self.openai_client, self.config.llm)
         elif not self.config.executor.send_empty:
             logger.info("No new papers found. No email will be sent.")
             return
         logger.info("Sending email...")
-        email_content = render_email(reranked_papers)
+        email_content = render_email(reranked_papers, feedback_cfg=getattr(self.config, "feedback", None))
         send_email(self.config, email_content)
         logger.info("Email sent successfully")

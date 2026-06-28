@@ -5,6 +5,7 @@ from datetime import date
 from types import SimpleNamespace
 
 import feedparser
+from omegaconf import open_dict
 
 from zotero_arxiv_daily.retriever.arxiv_retriever import ArxivRetriever, _run_with_hard_timeout
 import zotero_arxiv_daily.retriever.arxiv_retriever as arxiv_retriever
@@ -21,6 +22,9 @@ def _raise_runtime_error() -> None:
 
 def test_arxiv_retriever(config, mock_feedparser, monkeypatch):
     monkeypatch.setattr("zotero_arxiv_daily.retriever.base.sleep", lambda _: None)
+    with open_dict(config.source.arxiv):
+        config.source.arxiv.days_back = 1
+    monkeypatch.setattr(arxiv_retriever, "_utc_today", lambda: date(2025, 8, 20))
 
     # The RSS fixture gives us paper IDs.  After feedparser, the code calls
     # arxiv.Client().results(search) which makes real HTTP requests.  We mock
@@ -33,8 +37,9 @@ def test_arxiv_retriever(config, mock_feedparser, monkeypatch):
 
     # Build fake ArxivResult-like objects matching each RSS entry
     fake_results = []
-    for entry in new_entries:
+    for idx, entry in enumerate(new_entries):
         pid = entry.id.removeprefix("oai:arXiv.org:")
+        comment = "To appear at Crypto 2027" if idx == 0 else None
         fake_results.append(SimpleNamespace(
             title=entry.title,
             authors=[SimpleNamespace(name="Test Author")],
@@ -42,6 +47,7 @@ def test_arxiv_retriever(config, mock_feedparser, monkeypatch):
             pdf_url=f"https://arxiv.org/pdf/{pid}",
             entry_id=f"https://arxiv.org/abs/{pid}",
             source_url=lambda pid=pid: f"https://arxiv.org/e-print/{pid}",
+            comment=comment,
         ))
 
     class FakeClient:
@@ -62,10 +68,13 @@ def test_arxiv_retriever(config, mock_feedparser, monkeypatch):
 
     assert len(papers) == len(new_entries)
     assert set(p.title for p in papers) == set(e.title for e in new_entries)
+    assert papers[0].source_note == "To appear at Crypto 2027"
 
 
 def test_arxiv_retriever_falls_back_to_web_new_listing_when_rss_empty(config, monkeypatch):
     target_date = date(2026, 6, 15)
+    with open_dict(config.source.arxiv):
+        config.source.arxiv.days_back = 1
     today_primary = SimpleNamespace(
         title="Today primary",
         entry_id="https://arxiv.org/abs/2606.00001v1",

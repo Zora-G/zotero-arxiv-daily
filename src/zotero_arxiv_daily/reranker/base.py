@@ -4,6 +4,60 @@ from ..protocol import Paper, CorpusPaper
 import numpy as np
 import math
 from typing import Type
+from collections import Counter
+import csv
+from pathlib import Path
+
+
+def _cfg_get(cfg, key: str, default=None):
+    try:
+        return cfg.get(key, default)
+    except Exception:
+        return getattr(cfg, key, default)
+
+
+def _extract_feedback_text(row: dict) -> str:
+    return str(row.get("title", "") or "").strip()
+
+
+def _iter_feedback_rows(path: Path):
+    if not path.exists() or not path.is_file():
+        return []
+
+    try:
+        with path.open("r", encoding="utf-8", newline="") as fp:
+            reader = csv.DictReader(fp)
+            return list(reader)
+    except Exception:
+        return []
+
+
+def _read_feedback_profiles(path: str, max_items: int) -> tuple[list[str], list[str]]:
+    if not path:
+        return [], []
+
+    feedback_path = Path(path).expanduser()
+    rows = _iter_feedback_rows(feedback_path)
+    if not rows:
+        return [], []
+
+    positive = Counter()
+    negative = Counter()
+    for row in rows:
+        action = str(row.get("action", "")).strip().lower()
+        text = _extract_feedback_text(row)
+        if not text:
+            continue
+        if action == "liked":
+            positive[text] += 1
+        elif action == "dislike":
+            negative[text] += 1
+
+    pos_texts = [k for k, _ in positive.most_common(max_items)]
+    neg_texts = [k for k, _ in negative.most_common(max_items)]
+    return pos_texts, neg_texts
+
+
 class BaseReranker(ABC):
     def __init__(self, config:DictConfig):
         self.config = config
@@ -21,6 +75,19 @@ class BaseReranker(ABC):
             profile_sim = self.get_similarity_score([self._paper_profile_text(c) for c in candidates], interest_profile)
             assert profile_sim.shape == (len(candidates), len(interest_profile))
             scores = scores + profile_sim.max(axis=1) * 10 * interest_weight
+        feedback_profiles = self._feedback_profiles()
+        feedback_positive_weight = self._feedback_positive_weight()
+        feedback_negative_weight = self._feedback_negative_weight()
+        if feedback_profiles[0] and feedback_positive_weight > 0:
+            like_texts, _ = feedback_profiles
+            like_sim = self.get_similarity_score([self._paper_profile_text(c) for c in candidates], like_texts)
+            assert like_sim.shape == (len(candidates), len(like_texts))
+            scores = scores + like_sim.max(axis=1) * 10 * feedback_positive_weight
+        if feedback_profiles[1] and feedback_negative_weight > 0:
+            _, dislike_texts = feedback_profiles
+            dislike_sim = self.get_similarity_score([self._paper_profile_text(c) for c in candidates], dislike_texts)
+            assert dislike_sim.shape == (len(candidates), len(dislike_texts))
+            scores = scores - dislike_sim.max(axis=1) * 10 * feedback_negative_weight
         if self._quality_boost_enabled():
             quality_bonus = np.array([self._quality_bonus(c) for c in candidates], dtype=float)
             scores = scores + quality_bonus
@@ -43,6 +110,30 @@ class BaseReranker(ABC):
         if isinstance(profile, str):
             return [profile.strip()] if profile.strip() else []
         return [str(item).strip() for item in profile if str(item).strip()]
+
+    def _feedback_profiles(self) -> tuple[list[str], list[str]]:
+        feedback_cfg = getattr(self.config, "feedback", None)
+        if not feedback_cfg:
+            return [], []
+        if not _cfg_get(feedback_cfg, "enabled", False):
+            return [], []
+        path = _cfg_get(feedback_cfg, "history_path", None)
+        if not path:
+            return [], []
+        max_items = int(_cfg_get(feedback_cfg, "history_max_items", 200) or 200)
+        return _read_feedback_profiles(path, max_items)
+
+    def _feedback_positive_weight(self) -> float:
+        feedback_cfg = getattr(self.config, "feedback", None)
+        if not feedback_cfg:
+            return 0.0
+        return float(_cfg_get(feedback_cfg, "positive_weight", 0.0) or 0.0)
+
+    def _feedback_negative_weight(self) -> float:
+        feedback_cfg = getattr(self.config, "feedback", None)
+        if not feedback_cfg:
+            return 0.0
+        return float(_cfg_get(feedback_cfg, "negative_weight", 0.0) or 0.0)
 
     def _interest_profile_weight(self) -> float:
         executor_cfg = getattr(self.config, "executor", None)

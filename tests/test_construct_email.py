@@ -49,6 +49,22 @@ def test_render_email_no_affiliations():
     assert "Unknown Affiliation" in html
 
 
+def test_render_email_with_feedback_buttons():
+    paper = make_sample_paper(score=7.2, tldr="Good", url="https://arxiv.org/abs/2501.00001")
+    html = render_email(
+        [paper],
+        feedback_cfg={
+            "enabled": True,
+            "endpoint": "https://example.com/feedback",
+        },
+    )
+    assert "推送满意" in html
+    assert "不太满意" in html
+    assert "action=liked" in html
+    assert "action=dislike" in html
+    assert "paper_url=https%3A%2F%2Farxiv.org%2Fabs%2F2501.00001" in html
+
+
 def test_get_stars_low_score():
     assert get_stars(5.0) == ""
     assert get_stars(6.0) == ""
@@ -66,14 +82,26 @@ def test_get_stars_mid_score():
 
 
 def test_get_block_html_contains_all_fields():
-    html = get_block_html("Title", "eprint", "Auth", "3.5", "Summary", "http://pdf.url", "MIT")
+    html = get_block_html("Title", "eprint", "Auth", "3.5", "Summary", "http://pdf.url", "MIT", "标题")
     assert "Title" in html
+    assert "标题" in html
     assert "eprint" in html
     assert "Auth" in html
     assert "3.5" in html
     assert "Summary" in html
     assert "http://pdf.url" in html
     assert "MIT" in html
+
+
+def test_get_block_html_source_note():
+    html = get_block_html("Title", "arxiv", "Auth", "3.5", "Summary", "http://pdf.url", "MIT", "标题", "Nice comments from author")
+    assert "Source:</strong> arxiv - Nice comments from author" in html
+
+
+def test_render_email_shows_chinese_title():
+    paper = make_sample_paper(score=7.0, tldr="ok", title_cn="中文题目")
+    html = render_email([paper])
+    assert "中文题目" in html
 
 
 def test_get_empty_html():

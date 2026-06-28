@@ -4,9 +4,11 @@ from datetime import datetime
 
 import pytest
 from omegaconf import OmegaConf
+from omegaconf import open_dict
 
 from zotero_arxiv_daily.executor import Executor, normalize_path_patterns
 from zotero_arxiv_daily.protocol import CorpusPaper
+from tests.canned_responses import make_sample_paper
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +152,8 @@ def test_fetch_zotero_corpus_paper_with_zero_collections(config, monkeypatch):
 
 def test_run_end_to_end(config, monkeypatch):
     """Full pipeline: Zotero fetch -> filter -> retrieve -> rerank -> TLDR -> email."""
+    from email import message_from_string
+
     import smtplib
 
     from omegaconf import open_dict
@@ -207,6 +211,9 @@ def test_run_end_to_end(config, monkeypatch):
     assert len(sent) == 1, "Email should have been sent"
     _, _, email_body = sent[0]
     assert "text/html" in email_body
+    message = message_from_string(email_body)
+    decoded_html = message.get_payload(decode=True).decode(message.get_content_charset() or "utf-8")
+    assert "示例论文题目（中文）" in decoded_html
 
 
 def test_run_no_papers_send_empty_false(config, monkeypatch):
@@ -281,3 +288,63 @@ def test_run_no_papers_send_empty_true(config, monkeypatch):
     assert len(sent) == 1, "Email should be sent even with no papers when send_empty=true"
     _, _, body = sent[0]
     assert "text/html" in body
+
+
+def test_source_minimums_normalize(config):
+    with open_dict(config):
+        config.executor.source_min_papers = {
+            "arxiv": "10",
+            "eprint": 5,
+            "invalid": -1,
+            "other": "bad",
+        }
+
+    minimums = Executor._source_minimums(config)
+    assert minimums == {"arxiv": 10, "eprint": 5}
+
+
+def test_apply_source_minimums(config):
+    executor = Executor.__new__(Executor)
+    executor.config = config
+
+    with open_dict(config.executor):
+        config.executor.max_paper_num = 5
+
+    papers = [
+        make_sample_paper(title="A1", source="arxiv", score=0.95),
+        make_sample_paper(title="A2", source="arxiv", score=0.90),
+        make_sample_paper(title="A3", source="arxiv", score=0.80),
+        make_sample_paper(title="E1", source="eprint", score=0.99),
+        make_sample_paper(title="E2", source="eprint", score=0.88),
+        make_sample_paper(title="B1", source="biorxiv", score=0.97),
+    ]
+
+    with open_dict(config):
+        config.executor.source_min_papers = {"arxiv": 1, "eprint": 1}
+
+    selected = executor._apply_source_minimums(papers, Executor._source_minimums(config))
+    assert selected[0].title == "A1"
+    assert selected[1].title == "E1"
+    assert len(selected) == 5
+    assert "A2" in [p.title for p in selected]
+
+
+def test_apply_source_minimums_respects_max(config):
+    executor = Executor.__new__(Executor)
+    executor.config = config
+
+    papers = [
+        make_sample_paper(title="A", source="arxiv", score=0.10),
+        make_sample_paper(title="B", source="arxiv", score=0.20),
+        make_sample_paper(title="C", source="eprint", score=0.30),
+        make_sample_paper(title="D", source="eprint", score=0.40),
+    ]
+
+    with open_dict(config.executor):
+        config.executor.max_paper_num = 3
+
+    result = executor._apply_source_minimums(papers, {"arxiv": 2, "eprint": 2})
+    assert len(result) == 3
+    assert result[0].title == "A"
+    assert result[1].title == "B"
+    assert result[2].title == "C"

@@ -38,6 +38,7 @@ def test_eprint_retriever(config, monkeypatch):
                     title="today match",
                     link="https://eprint.iacr.org/2026/9999",
                     summary="Summary A",
+                    comment="Cryptology ePrint report",
                     published_parsed=(2026, 6, 15, 0, 0, 0, 0, 0, 0),
                     tags=[{"term": "Secret-key cryptography"}],
                     authors=[{"name": "Alice"}],
@@ -87,6 +88,8 @@ def test_eprint_retriever(config, monkeypatch):
     assert papers[0].source == "eprint"
     assert any(p.url == "https://eprint.iacr.org/2026/9999" for p in papers)
     assert any(p.pdf_url == "https://eprint.iacr.org/2026/9999.pdf" for p in papers)
+    first_paper = next(p for p in papers if p.title == "today match")
+    assert first_paper.source_note == "Cryptology ePrint report"
 
 
 def test_eprint_days_back(config, monkeypatch):

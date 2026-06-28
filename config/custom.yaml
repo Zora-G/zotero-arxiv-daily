@@ -5,8 +5,8 @@ zotero:
   ignore_path: null
 
 email:
-  sender: gaoge92021@163.com
-  receiver: gaoge92021@163.com
+  sender: ${oc.env:SENDER}
+  receiver: ${oc.env:RECEIVER}
   smtp_server: smtp.163.com
   smtp_port: 465
   sender_password: ${oc.env:SENDER_PASSWORD}
@@ -20,20 +20,53 @@ llm:
     extra_body:
       enable_thinking: false
   language: Chinese
+  tldr:
+    max_sentences: 3
+    max_words: 160
 
 source:
   arxiv:
     category: ["cs.CR"]
     include_cross_list: true
+    days_back: 10
   eprint:
-    category: ["Cryptographic protocols","Public-key cryptography","Secret-key cryptography","Foundations","Applications","Implementation"]
-    days_back: 4
+    category: [
+      "cryptography",
+      "cryptographic protocols",
+      "public-key cryptography",
+      "secret-key cryptography",
+      "privacy",
+      "security and privacy",
+      "privacy-preserving",
+      "privacy-preserving cryptography",
+      "private information retrieval",
+      "password-based cryptography",
+      "password",
+      "password-based",
+      "password based",
+      "password-authenticated",
+      "password authenticated",
+      "password-authenticated key exchange",
+      "PAKE",
+      "zero-knowledge",
+      "oblivious transfer",
+      "private set intersection",
+      "applications",
+      "implementation",
+      "applied cryptography",
+      "post-quantum cryptography",
+      "foundations"
+    ]
+    days_back: 10
 
 executor:
   debug: ${oc.env:DEBUG,null}
   source: ['arxiv','eprint']
   send_empty: true
   max_paper_num: 30
+  source_min_papers:
+    arxiv: 10
+    eprint: 10
   quality_boost: true
   citation_weight: 0.15
   author_weight: 0.15
@@ -58,3 +91,11 @@ reranker:
     base_url: ${oc.env:OPENAI_API_BASE}
     model: BAAI/bge-m3
     batch_size: 32
+
+feedback:
+  enabled: false
+  endpoint: null
+  history_path: null
+  history_max_items: 200
+  positive_weight: 0.0
+  negative_weight: 0.0
