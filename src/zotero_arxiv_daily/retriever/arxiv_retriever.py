@@ -24,6 +24,7 @@ TAR_EXTRACT_TIMEOUT = 180
 ARXIV_LIST_SHOW = 2000
 ARXIV_API_PAGE_SIZE = 200
 ARXIV_API_MAX_PAGES = 8
+ARXIV_API_PAGE_TIMEOUT = 30
 
 
 def _utc_today() -> date:
@@ -37,6 +38,22 @@ def _download_file(url: str, path: str) -> None:
             for chunk in response.iter_content(chunk_size=1024 * 1024):
                 if chunk:
                     file.write(chunk)
+
+
+def _download_arxiv_api_page(search_query: str, start: int, page_size: int) -> bytes:
+    response = requests.get(
+        "https://export.arxiv.org/api/query",
+        params={
+            "search_query": search_query,
+            "sortBy": "submittedDate",
+            "sortOrder": "descending",
+            "start": start,
+            "max_results": page_size,
+        },
+        timeout=DEFAULT_HTTP_TIMEOUT,
+    )
+    response.raise_for_status()
+    return response.content
 
 
 def _run_in_subprocess(
@@ -288,24 +305,17 @@ class ArxivRetriever(BaseRetriever):
         page_count = min(ARXIV_API_MAX_PAGES, max(1, (max_results + ARXIV_API_PAGE_SIZE - 1) // ARXIV_API_PAGE_SIZE))
         for page_index in range(page_count):
             start = page_index * ARXIV_API_PAGE_SIZE
-            try:
-                response = requests.get(
-                    "https://export.arxiv.org/api/query",
-                    params={
-                        "search_query": search_query,
-                        "sortBy": "submittedDate",
-                        "sortOrder": "descending",
-                        "start": start,
-                        "max_results": ARXIV_API_PAGE_SIZE,
-                    },
-                    timeout=DEFAULT_HTTP_TIMEOUT,
-                )
-                response.raise_for_status()
-            except requests.exceptions.RequestException as exc:
-                logger.warning(f"Failed to retrieve arXiv API page {page_index + 1}/{page_count}: {exc}")
+            content = _run_with_hard_timeout(
+                _download_arxiv_api_page,
+                (search_query, start, ARXIV_API_PAGE_SIZE),
+                timeout=ARXIV_API_PAGE_TIMEOUT,
+                operation=f"arXiv API page {page_index + 1}/{page_count}",
+                paper_title=search_query,
+            )
+            if content is None:
                 break
 
-            feed = feedparser.parse(response.content)
+            feed = feedparser.parse(content)
             if feed.bozo:
                 logger.warning(f"arXiv API returned a bozo feed on page {page_index + 1}: {feed.bozo_exception}")
             if len(feed.entries) == 0:
