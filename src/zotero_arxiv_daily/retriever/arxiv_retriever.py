@@ -1,4 +1,4 @@
-from .base import BaseRetriever, TimeoutSession, parse_feed_url, register_retriever
+from .base import BaseRetriever, DEFAULT_HTTP_TIMEOUT, TimeoutSession, parse_feed_url, register_retriever
 import arxiv
 from arxiv import Result as ArxivResult
 from ..protocol import Paper
@@ -22,6 +22,8 @@ DOWNLOAD_TIMEOUT = (10, 60)
 PDF_EXTRACT_TIMEOUT = 180
 TAR_EXTRACT_TIMEOUT = 180
 ARXIV_LIST_SHOW = 2000
+ARXIV_API_PAGE_SIZE = 200
+ARXIV_API_MAX_PAGES = 8
 
 
 def _utc_today() -> date:
@@ -222,28 +224,16 @@ class ArxivRetriever(BaseRetriever):
         if days_back > 1:
             allowed_categories = {self._normalize_category(c) for c in self.config.source.arxiv.category}
             search_query = " OR ".join([f"cat:{c}" for c in sorted(allowed_categories) if c])
-            search = arxiv.Search(
-                query=f"({search_query})",
-                sort_by=arxiv.SortCriterion.SubmittedDate,
-                sort_order=arxiv.SortOrder.Descending,
-                max_results=max(200, len(allowed_categories) * 150 * days_back),
-            )
-            raw_papers = []
             min_date = min(target_dates)
-            try:
-                for result in client.results(search):
-                    paper_publish = self._paper_publish_time(result)
-                    if paper_publish.date() < min_date:
-                        break
-                    if not self._match_arxiv_category(result, allowed_categories, include_cross_list):
-                        continue
-                    if paper_publish.date() in target_dates:
-                        raw_papers.append(result)
-                    if self.config.executor.debug and len(raw_papers) >= 10:
-                        break
-            except requests.exceptions.RequestException as exc:
-                logger.warning(f"Failed to retrieve arXiv papers via API search: {exc}")
-                return []
+            max_results = max(200, len(allowed_categories) * 150 * days_back)
+            raw_papers = self._retrieve_recent_papers_from_api_feed(
+                search_query=f"({search_query})",
+                target_dates=target_dates,
+                min_date=min_date,
+                max_results=max_results,
+                allowed_categories=allowed_categories,
+                include_cross_list=include_cross_list,
+            )
 
             logger.info(f"Retrieved {len(raw_papers)} arXiv papers via API search.")
             raw_papers = sorted(
@@ -282,6 +272,75 @@ class ArxivRetriever(BaseRetriever):
 
         raw_papers = self._fetch_papers_by_ids(client, all_paper_ids)
         return sorted(raw_papers, key=self._paper_publish_time, reverse=True)
+
+    def _retrieve_recent_papers_from_api_feed(
+        self,
+        *,
+        search_query: str,
+        target_dates: set[date],
+        min_date: date,
+        max_results: int,
+        allowed_categories: set[str],
+        include_cross_list: bool,
+    ) -> list[ArxivResult]:
+        raw_papers = []
+        seen_ids = set()
+        page_count = min(ARXIV_API_MAX_PAGES, max(1, (max_results + ARXIV_API_PAGE_SIZE - 1) // ARXIV_API_PAGE_SIZE))
+        for page_index in range(page_count):
+            start = page_index * ARXIV_API_PAGE_SIZE
+            try:
+                response = requests.get(
+                    "https://export.arxiv.org/api/query",
+                    params={
+                        "search_query": search_query,
+                        "sortBy": "submittedDate",
+                        "sortOrder": "descending",
+                        "start": start,
+                        "max_results": ARXIV_API_PAGE_SIZE,
+                    },
+                    timeout=DEFAULT_HTTP_TIMEOUT,
+                )
+                response.raise_for_status()
+            except requests.exceptions.RequestException as exc:
+                logger.warning(f"Failed to retrieve arXiv API page {page_index + 1}/{page_count}: {exc}")
+                break
+
+            feed = feedparser.parse(response.content)
+            if feed.bozo:
+                logger.warning(f"arXiv API returned a bozo feed on page {page_index + 1}: {feed.bozo_exception}")
+            if len(feed.entries) == 0:
+                break
+
+            reached_old_entries = False
+            for entry in feed.entries:
+                try:
+                    result = arxiv.Result._from_feed_entry(entry)
+                except Exception as exc:
+                    logger.warning(f"Skipping malformed arXiv API entry: {exc}")
+                    continue
+
+                result_id = getattr(result, "entry_id", None)
+                if result_id in seen_ids:
+                    continue
+                seen_ids.add(result_id)
+
+                paper_publish = self._paper_publish_time(result)
+                if paper_publish.date() < min_date:
+                    reached_old_entries = True
+                    continue
+                if not self._match_arxiv_category(result, allowed_categories, include_cross_list):
+                    continue
+                if paper_publish.date() in target_dates:
+                    raw_papers.append(result)
+                if self.config.executor.debug and len(raw_papers) >= 10:
+                    return raw_papers
+
+            if reached_old_entries:
+                break
+            if page_index + 1 < page_count:
+                sleep(3)
+
+        return raw_papers
 
     def _fetch_papers_by_ids(self, client: arxiv.Client, all_paper_ids: list[str]) -> list[ArxivResult]:
         # Get full information of each paper from arxiv api
