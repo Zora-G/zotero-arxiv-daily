@@ -7,6 +7,7 @@ from typing import Type
 from collections import Counter
 import csv
 from pathlib import Path
+from loguru import logger
 
 
 def _cfg_get(cfg, key: str, default=None):
@@ -66,28 +67,41 @@ class BaseReranker(ABC):
         corpus = sorted(corpus,key=lambda x: x.added_date,reverse=True)
         time_decay_weight = 1 / (1 + np.log10(np.arange(len(corpus)) + 1))
         time_decay_weight: np.ndarray = time_decay_weight / time_decay_weight.sum()
-        sim = self.get_similarity_score([c.abstract for c in candidates], [c.abstract for c in corpus])
-        assert sim.shape == (len(candidates), len(corpus))
-        scores = (sim * time_decay_weight).sum(axis=1) * 10 # [n_candidate]
+        try:
+            sim = self.get_similarity_score([c.abstract for c in candidates], [c.abstract for c in corpus])
+            assert sim.shape == (len(candidates), len(corpus))
+            scores = (sim * time_decay_weight).sum(axis=1) * 10 # [n_candidate]
+        except Exception as exc:
+            logger.warning(f"Base reranking similarity failed; using zero base scores: {exc}")
+            scores = np.zeros(len(candidates), dtype=float)
         interest_profile = self._interest_profile()
         interest_weight = self._interest_profile_weight()
         if interest_profile and interest_weight > 0:
-            profile_sim = self.get_similarity_score([self._paper_profile_text(c) for c in candidates], interest_profile)
-            assert profile_sim.shape == (len(candidates), len(interest_profile))
-            scores = scores + profile_sim.max(axis=1) * 10 * interest_weight
+            try:
+                profile_sim = self.get_similarity_score([self._paper_profile_text(c) for c in candidates], interest_profile)
+                assert profile_sim.shape == (len(candidates), len(interest_profile))
+                scores = scores + profile_sim.max(axis=1) * 10 * interest_weight
+            except Exception as exc:
+                logger.warning(f"Interest-profile similarity failed; skipping profile boost: {exc}")
         feedback_profiles = self._feedback_profiles()
         feedback_positive_weight = self._feedback_positive_weight()
         feedback_negative_weight = self._feedback_negative_weight()
         if feedback_profiles[0] and feedback_positive_weight > 0:
             like_texts, _ = feedback_profiles
-            like_sim = self.get_similarity_score([self._paper_profile_text(c) for c in candidates], like_texts)
-            assert like_sim.shape == (len(candidates), len(like_texts))
-            scores = scores + like_sim.max(axis=1) * 10 * feedback_positive_weight
+            try:
+                like_sim = self.get_similarity_score([self._paper_profile_text(c) for c in candidates], like_texts)
+                assert like_sim.shape == (len(candidates), len(like_texts))
+                scores = scores + like_sim.max(axis=1) * 10 * feedback_positive_weight
+            except Exception as exc:
+                logger.warning(f"Positive-feedback similarity failed; skipping feedback boost: {exc}")
         if feedback_profiles[1] and feedback_negative_weight > 0:
             _, dislike_texts = feedback_profiles
-            dislike_sim = self.get_similarity_score([self._paper_profile_text(c) for c in candidates], dislike_texts)
-            assert dislike_sim.shape == (len(candidates), len(dislike_texts))
-            scores = scores - dislike_sim.max(axis=1) * 10 * feedback_negative_weight
+            try:
+                dislike_sim = self.get_similarity_score([self._paper_profile_text(c) for c in candidates], dislike_texts)
+                assert dislike_sim.shape == (len(candidates), len(dislike_texts))
+                scores = scores - dislike_sim.max(axis=1) * 10 * feedback_negative_weight
+            except Exception as exc:
+                logger.warning(f"Negative-feedback similarity failed; skipping feedback penalty: {exc}")
         if self._quality_boost_enabled():
             quality_bonus = np.array([self._quality_bonus(c) for c in candidates], dtype=float)
             scores = scores + quality_bonus

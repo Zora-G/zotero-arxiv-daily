@@ -373,9 +373,6 @@ class Executor:
             logger.info(f"Retrieved {len(papers)} {source} papers")
             all_papers.extend(papers)
         logger.info(f"Total {len(all_papers)} papers retrieved from all sources")
-        if self.quality_enricher.enabled and len(all_papers) > 0:
-            logger.info("Enriching papers with OpenAlex citation and author signals...")
-            self.quality_enricher.enrich_papers(all_papers)
         all_papers = self._deduplicate_papers(all_papers)
         reranked_papers = []
         if len(all_papers) > 0:
@@ -386,6 +383,12 @@ class Executor:
             if source_minimums:
                 logger.info(f"Applying source minimums: {source_minimums}")
             reranked_papers = self._apply_source_minimums(reranked_papers, source_minimums)
+            if self.quality_enricher.enabled and len(reranked_papers) > 0:
+                logger.info("Enriching selected papers with OpenAlex citation and author signals...")
+                self.quality_enricher.enrich_papers(reranked_papers)
+                for paper in reranked_papers:
+                    paper.score = float(paper.score or 0.0) + self.reranker._quality_bonus(paper)
+                reranked_papers = sorted(reranked_papers, key=lambda paper: paper.score or 0.0, reverse=True)
             logger.info("Generating title translation, TLDR and affiliations...")
             llm_params = self._llm_params_for_review()
             for p in tqdm(reranked_papers):
