@@ -29,6 +29,7 @@ source:
     category: ["cs.CR"]
     include_cross_list: true
     days_back: 10
+    fetch_full_text: false
   eprint:
     category: [
       "cryptography",

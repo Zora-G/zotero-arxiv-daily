@@ -21,6 +21,7 @@ T = TypeVar("T")
 DOWNLOAD_TIMEOUT = (10, 60)
 PDF_EXTRACT_TIMEOUT = 180
 TAR_EXTRACT_TIMEOUT = 180
+HTML_EXTRACT_TIMEOUT = 30
 ARXIV_LIST_SHOW = 2000
 ARXIV_API_PAGE_SIZE = 200
 ARXIV_API_MAX_PAGES = 8
@@ -409,16 +410,18 @@ class ArxivRetriever(BaseRetriever):
         authors = [a.name for a in raw_paper.authors]
         abstract = raw_paper.summary
         pdf_url = raw_paper.pdf_url
-        full_text = extract_text_from_tar(raw_paper)
+        full_text = None
+        if bool(getattr(self.retriever_config, "fetch_full_text", False)):
+            full_text = extract_text_from_tar(raw_paper)
+            if full_text is None:
+                full_text = extract_text_from_html(raw_paper)
+            if full_text is None:
+                full_text = extract_text_from_pdf(raw_paper)
         source_note = getattr(raw_paper, "comment", None)
         if source_note is not None:
             source_note = str(source_note).strip()
             if source_note == "":
                 source_note = None
-        if full_text is None:
-            full_text = extract_text_from_html(raw_paper)
-        if full_text is None:
-            full_text = extract_text_from_pdf(raw_paper)
         return Paper(
             source=self.name,
             source_note=source_note,
@@ -468,11 +471,13 @@ def _extract_new_listing_ids(
 
 def extract_text_from_html(paper: ArxivResult) -> str | None:
     html_url = paper.entry_id.replace("/abs/", "/html/")
-    try:
-        return _extract_text_from_html_worker(html_url)
-    except Exception as exc:
-        logger.warning(f"HTML extraction failed for {paper.title}: {exc}")
-        return None
+    return _run_with_hard_timeout(
+        _extract_text_from_html_worker,
+        (html_url,),
+        timeout=HTML_EXTRACT_TIMEOUT,
+        operation="HTML extraction",
+        paper_title=paper.title,
+    )
 
 
 def extract_text_from_pdf(paper: ArxivResult) -> str | None:
