@@ -1,4 +1,4 @@
-from .base import BaseRetriever, register_retriever
+from .base import BaseRetriever, TimeoutSession, parse_feed_url, register_retriever
 import arxiv
 from arxiv import Result as ArxivResult
 from ..protocol import Paper
@@ -121,6 +121,12 @@ class ArxivRetriever(BaseRetriever):
             raise ValueError("category must be specified for arxiv.")
 
     @staticmethod
+    def _make_client() -> arxiv.Client:
+        client = arxiv.Client(num_retries=10, delay_seconds=10)
+        client._session = TimeoutSession()
+        return client
+
+    @staticmethod
     def _normalize_category(value: Any) -> str | None:
         if value is None:
             return None
@@ -207,7 +213,7 @@ class ArxivRetriever(BaseRetriever):
         return primary_category in allowed
 
     def _retrieve_raw_papers(self) -> list[ArxivResult]:
-        client = arxiv.Client(num_retries=10, delay_seconds=10)
+        client = self._make_client()
         query = '+'.join(self.config.source.arxiv.category)
         include_cross_list = self.config.source.arxiv.get("include_cross_list", False)
         days_back = self._days_back(self.config)
@@ -224,16 +230,20 @@ class ArxivRetriever(BaseRetriever):
             )
             raw_papers = []
             min_date = min(target_dates)
-            for result in client.results(search):
-                paper_publish = self._paper_publish_time(result)
-                if paper_publish.date() < min_date:
-                    break
-                if not self._match_arxiv_category(result, allowed_categories, include_cross_list):
-                    continue
-                if paper_publish.date() in target_dates:
-                    raw_papers.append(result)
-                if self.config.executor.debug and len(raw_papers) >= 10:
-                    break
+            try:
+                for result in client.results(search):
+                    paper_publish = self._paper_publish_time(result)
+                    if paper_publish.date() < min_date:
+                        break
+                    if not self._match_arxiv_category(result, allowed_categories, include_cross_list):
+                        continue
+                    if paper_publish.date() in target_dates:
+                        raw_papers.append(result)
+                    if self.config.executor.debug and len(raw_papers) >= 10:
+                        break
+            except requests.exceptions.RequestException as exc:
+                logger.warning(f"Failed to retrieve arXiv papers via API search: {exc}")
+                return []
 
             logger.info(f"Retrieved {len(raw_papers)} arXiv papers via API search.")
             raw_papers = sorted(
@@ -244,18 +254,23 @@ class ArxivRetriever(BaseRetriever):
             return raw_papers
 
         # Get the latest paper from arxiv rss feed
-        feed = feedparser.parse(f"https://rss.arxiv.org/atom/{query}")
-        if 'Feed error for query' in feed.feed.title:
+        try:
+            feed = parse_feed_url(f"https://rss.arxiv.org/atom/{query}")
+        except requests.exceptions.RequestException as exc:
+            logger.warning(f"Failed to retrieve arXiv RSS for {query}: {exc}; falling back to web new listings.")
+            feed = None
+        if feed is not None and 'Feed error for query' in feed.feed.title:
             raise Exception(f"Invalid ARXIV_QUERY: {query}.")
         allowed_announce_types = {"new", "cross"} if include_cross_list else {"new"}
         all_paper_ids = []
-        for entry in feed.entries:
-            if entry.get("arxiv_announce_type", "new") not in allowed_announce_types:
-                continue
-            published_dt = self._extract_entry_publish_dt(entry)
-            if published_dt is not None and published_dt.date() not in target_dates:
-                continue
-            all_paper_ids.append(entry.id.removeprefix("oai:arXiv.org:"))
+        if feed is not None:
+            for entry in feed.entries:
+                if entry.get("arxiv_announce_type", "new") not in allowed_announce_types:
+                    continue
+                published_dt = self._extract_entry_publish_dt(entry)
+                if published_dt is not None and published_dt.date() not in target_dates:
+                    continue
+                all_paper_ids.append(entry.id.removeprefix("oai:arXiv.org:"))
         if len(all_paper_ids) == 0:
             logger.warning(
                 f"arXiv RSS returned no entries for {query}; falling back to arXiv web new listings."
@@ -282,8 +297,9 @@ class ArxivRetriever(BaseRetriever):
                     bar.update(len(batch))
                     raw_papers.extend(batch)
                     break
-                except arxiv.HTTPError as exc:
-                    if exc.status == 429 and attempt < max_batch_retries - 1:
+                except (arxiv.HTTPError, requests.exceptions.RequestException) as exc:
+                    status = getattr(exc, "status", None)
+                    if status == 429 and attempt < max_batch_retries - 1:
                         wait = batch_retry_delay * (attempt + 1)
                         logger.warning(f"arXiv API 429 on batch {i // 20}, retry {attempt + 1}/{max_batch_retries} in {wait}s")
                         sleep(wait)

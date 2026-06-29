@@ -1,5 +1,5 @@
 import requests
-from .base import BaseRetriever, register_retriever
+from .base import BaseRetriever, DEFAULT_HTTP_TIMEOUT, register_retriever
 from ..protocol import Paper
 from loguru import logger
 from typing import Any
@@ -20,7 +20,7 @@ class BiorxivRetriever(BaseRetriever):
         delay_time = 10
         for i in range(retry_num):
             try:
-                response = requests.get(api_url)
+                response = requests.get(api_url, timeout=DEFAULT_HTTP_TIMEOUT)
                 response.raise_for_status()
                 break
             except Exception as e:

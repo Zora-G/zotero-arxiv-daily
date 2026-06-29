@@ -29,8 +29,11 @@ class MockDateTime:
 
 
 def test_eprint_retriever(config, monkeypatch):
-    def _patched_parse(url):
+    def _fake_get(url, **kwargs):
         assert url == "https://eprint.iacr.org/rss/rss.xml"
+        return SimpleNamespace(content=b"https://eprint.iacr.org/rss/rss.xml", raise_for_status=lambda: None)
+
+    def _patched_parse(data):
         return SimpleNamespace(
             bozo=False,
             entries=[
@@ -71,6 +74,7 @@ def test_eprint_retriever(config, monkeypatch):
             ],
         )
 
+    monkeypatch.setattr("zotero_arxiv_daily.retriever.base.requests.get", _fake_get)
     monkeypatch.setattr(feedparser, "parse", _patched_parse)
     monkeypatch.setattr(
         "zotero_arxiv_daily.retriever.eprint_retriever.datetime",
@@ -93,8 +97,11 @@ def test_eprint_retriever(config, monkeypatch):
 
 
 def test_eprint_days_back(config, monkeypatch):
-    def _patched_parse(url):
+    def _fake_get(url, **kwargs):
         assert url == "https://eprint.iacr.org/rss/rss.xml"
+        return SimpleNamespace(content=b"https://eprint.iacr.org/rss/rss.xml", raise_for_status=lambda: None)
+
+    def _patched_parse(data):
         Entry = SimpleNamespace
         return SimpleNamespace(
             bozo=False,
@@ -119,6 +126,7 @@ def test_eprint_days_back(config, monkeypatch):
             ],
         )
 
+    monkeypatch.setattr("zotero_arxiv_daily.retriever.base.requests.get", _fake_get)
     monkeypatch.setattr(feedparser, "parse", _patched_parse)
     monkeypatch.setattr(
         "zotero_arxiv_daily.retriever.eprint_retriever.datetime",

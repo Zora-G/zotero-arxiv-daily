@@ -97,6 +97,8 @@ def test_arxiv_retriever_falls_back_to_web_new_listing_when_rss_empty(config, mo
     """
 
     def fake_get(url, **kwargs):
+        if "rss.arxiv.org" in url:
+            return SimpleNamespace(content=b"empty arxiv feed", raise_for_status=lambda: None)
         return SimpleNamespace(text=html, raise_for_status=lambda: None)
 
     empty_feed = SimpleNamespace(feed=SimpleNamespace(title="cs.AI updates"), entries=[])

@@ -5,9 +5,11 @@ from html import unescape
 from collections import Counter
 
 import feedparser
+import requests
 from loguru import logger
 
 from .base import BaseRetriever, register_retriever
+from .base import parse_feed_url
 from ..protocol import Paper
 
 
@@ -86,7 +88,11 @@ class EprintRetriever(BaseRetriever):
         return False
 
     def _retrieve_raw_papers(self) -> list[Any]:
-        response = feedparser.parse("https://eprint.iacr.org/rss/rss.xml")
+        try:
+            response = parse_feed_url("https://eprint.iacr.org/rss/rss.xml")
+        except requests.exceptions.RequestException as exc:
+            logger.warning(f"Failed to retrieve ePrint RSS: {exc}")
+            return []
         logger.info(f"Loaded ePrint RSS with {len(response.entries)} entries.")
         if len(response.entries) == 0:
             if response.bozo:

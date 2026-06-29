@@ -2,6 +2,7 @@
 
 import feedparser
 import pytest
+from types import SimpleNamespace
 
 
 @pytest.fixture()
@@ -25,6 +26,16 @@ def mock_feedparser(monkeypatch):
         return raw_parse(url_or_bytes, *args, **kwargs)
 
     monkeypatch.setattr(feedparser, "parse", _patched)
+
+    def _fake_get(url, **kwargs):
+        if "rss.arxiv.org" in url:
+            return SimpleNamespace(
+                content=b"https://rss.arxiv.org/atom/cs.CR",
+                raise_for_status=lambda: None,
+            )
+        raise AssertionError(f"Unexpected HTTP request in test: {url}")
+
+    monkeypatch.setattr("zotero_arxiv_daily.retriever.base.requests.get", _fake_get)
     return parsed
 
 

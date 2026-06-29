@@ -5,6 +5,22 @@ from tqdm import tqdm
 from typing import Type
 from time import sleep
 from loguru import logger
+import feedparser
+import requests
+
+DEFAULT_HTTP_TIMEOUT = (10, 60)
+
+
+class TimeoutSession(requests.Session):
+    def request(self, method, url, **kwargs):
+        kwargs.setdefault("timeout", DEFAULT_HTTP_TIMEOUT)
+        return super().request(method, url, **kwargs)
+
+
+def parse_feed_url(url: str):
+    response = requests.get(url, timeout=DEFAULT_HTTP_TIMEOUT)
+    response.raise_for_status()
+    return feedparser.parse(response.content)
 
 
 class BaseRetriever(ABC):
