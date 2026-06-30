@@ -28,7 +28,7 @@ source:
   arxiv:
     category: ["cs.CR"]
     include_cross_list: true
-    days_back: 10
+    days_back: 3
     fetch_full_text: false
   eprint:
     category: [
@@ -58,7 +58,7 @@ source:
       "post-quantum cryptography",
       "foundations"
     ]
-    days_back: 10
+    days_back: 3
 
 executor:
   debug: ${oc.env:DEBUG,null}
